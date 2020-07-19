@@ -77,14 +77,19 @@ namespace NBT
             foreach (var prop in nbtProps)
             {
                 var nbtAttr = (NBTItem)prop.GetCustomAttribute(typeof(NBTItem));
+
+                //Correct if it's a null name to name of the property.
+                if (nbtAttr.Name == null)
+                {
+                    nbtAttr.Name = prop.Name;
+                }
+
+                //Check if it's a match, add to list if it is.
                 if (nbtAttr.Name == name || (nbtAttr.IsRegex && Regex.IsMatch(name, nbtAttr.Name)))
                 {
                     possibleProps.Add(prop);
                 }
             }
-
-            //Skip this tag if there are no possible properties.
-            if (possibleProps.Count == 0) { return; }
 
             //Whittle down the possible properties more by required type (if a specific one is required).
             Type requiredType = null;
@@ -139,66 +144,120 @@ namespace NBT
                 }
             }
 
-            //Are there any viable properties left? If not, done.
-            if (possibleProps.Count == 0) { return; }
-
-            //Still properties that could be viable.
             //Switch over the type and set the value.
-            int dataStart = index + 2 + nameLen;
+            int dataStart = index + 3 + nameLen;
             var afterHeader = data.Skip(dataStart);
+            int nextIndex = -1;
             switch ((NBT_Tag)data[index])
             {
                 //One byte.
                 case NBT_Tag.ByteSigned:
                     possibleProps.SetValue(typeObj, data[dataStart]);
-                    return;
+                    nextIndex = dataStart + 1;
+                    break;
 
                 //Short (2 bytes, big endian).
                 case NBT_Tag.Short:
                     possibleProps.SetValue(typeObj, BitConverter.ToInt16(afterHeader.Take(2).Reverse().ToArray()));
-                    return;
+                    nextIndex = dataStart + 2;
+                    break;
 
                 //Integer (4 bytes, big endian).
                 case NBT_Tag.Integer:
                     possibleProps.SetValue(typeObj, BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray()));
-                    return;
+                    nextIndex = dataStart + 4;
+                    break;
 
                 //Long (8 bytes, big endian).
                 case NBT_Tag.Long:
                     possibleProps.SetValue(typeObj, BitConverter.ToInt64(afterHeader.Take(8).Reverse().ToArray()));
-                    return;
+                    nextIndex = dataStart + 8;
+                    break;
 
                 //Float (4 byte IEEE-754 single precision).
                 case NBT_Tag.Float:
                     possibleProps.SetValue(typeObj, BitConverter.ToSingle(afterHeader.Take(4).ToArray()));
-                    return;
+                    nextIndex = dataStart + 4;
+                    break;
 
                 //Double (8 byte IEEE-754 double precision).
                 case NBT_Tag.Double:
                     possibleProps.SetValue(typeObj, BitConverter.ToDouble(afterHeader.Take(8).ToArray()));
-                    return;
+                    nextIndex = dataStart + 8;
+                    break;
 
                 //Byte array (length prefixed w/ signed 4-byte int).
                 case NBT_Tag.ByteArray:
                     int arrayLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
                     possibleProps.SetValue(typeObj, afterHeader.Skip(4).Take(arrayLen).ToArray());
-                    return;
+                    nextIndex = dataStart + 4 + arrayLen;
+                    break;
 
                 //String (length prefixed with 2 byte ushort).
                 case NBT_Tag.String:
                     int strLen = BitConverter.ToUInt16(afterHeader.Take(2).Reverse().ToArray());
                     possibleProps.SetValue(typeObj, Encoding.ASCII.GetString(afterHeader.Skip(2).Take(strLen).ToArray()));
-                    return;
+                    nextIndex = dataStart + 2 + strLen;
+                    break;
+
+                //Integer array (length prefixed with signed 4-byte int).
+                case NBT_Tag.IntArray:
+                    int iArrLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
+                    var ints = new List<int>();
+                    for (int i=0; i<iArrLen; i++)
+                    {
+                        ints.Add(BitConverter.ToInt32(afterHeader.Skip(4 + 4 * i).Take(4).Reverse().ToArray()));
+                    }
+                    possibleProps.SetValue(typeObj, ints.ToArray());
+                    nextIndex = dataStart + 4 + iArrLen * 4;
+                    break;
+
+                //Long array (length prefixed with signed 4-byte int).
+                case NBT_Tag.LongArray:
+                    int lArrLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
+                    var longs = new List<long>();
+                    for (int i = 0; i < lArrLen; i++)
+                    {
+                        longs.Add(BitConverter.ToInt64(afterHeader.Skip(4 + 8 * i).Take(8).Reverse().ToArray()));
+                    }
+                    possibleProps.SetValue(typeObj, longs.ToArray());
+                    nextIndex = dataStart + 4 + lArrLen * 8;
+                    break;
 
                 //List of items.
                 case NBT_Tag.List:
                     Console.WriteLine("todo: nbt list parse");
-                    return; //todo
+                    throw new NotImplementedException(); //todo
 
                 //Child compound.
                 case NBT_Tag.StartCompound:
-                    //Whittle list down to only custom classes.
+                    //Consider only custom classes with NBTCompound tag.
+                    for (int i=0; i<possibleProps.Count; i++)
+                    {
+                        //Not custom/no tag?
+                        if (possibleProps[i].PropertyType.Namespace.StartsWith("System")
+                            || possibleProps[i].PropertyType.GetCustomAttribute(typeof(NBTCompound)) == null)
+                        {
+                            continue;
+                        }
+
+                        //Get valid property data for destination type.
+                        var childValidProps = possibleProps[i].PropertyType.GetProperties()
+                                                                    .Where(x => x.GetCustomAttribute(typeof(NBTItem)) != null);
+
+                        //Recursively process NBT tags for child.
+                        object childCompound = Activator.CreateInstance(possibleProps[i].PropertyType);
+                        ProcessTag(data, dataStart, childCompound, childValidProps.ToList());
+
+                        //Set in parent.
+                        possibleProps[i].SetValue(typeObj, childCompound);
+                    }
+                    nextIndex = dataStart;
+                    break;
             }
+
+            //Process the next tag in the compound.
+            ProcessTag(data, nextIndex, typeObj, nbtProps);
         }
     }
 

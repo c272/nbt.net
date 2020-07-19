@@ -14,9 +14,9 @@ namespace NBT
     /// </summary>
     public class NBTItem : Attribute
     {
-        public string Name { get; private set; }
-        public bool IsRegex { get; private set; }
-        public NBTItem(string name, bool isRegex = false)
+        public string Name { get; set; }
+        public bool IsRegex { get; set; }
+        public NBTItem(string name = null, bool isRegex = false)
         {
             Name = name;
             IsRegex = isRegex;
