@@ -54,7 +54,7 @@ namespace NBT
 
             //Recursively process NBT tags.
             T typeObj = (T)Activator.CreateInstance(typeof(T));
-            ProcessTag(data, 3, typeObj, nbtProps.ToList()); //skip to index 3 to pass static header 0A 00 00.
+            ProcessTag(data, 0, typeObj, nbtProps.ToList());
 
             //Return results.
             return typeObj;
