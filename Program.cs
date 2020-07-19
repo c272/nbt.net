@@ -11,6 +11,7 @@ namespace NBT
         }
     }
 
+    [NBTCompound]
     public class LevelDat
     {
 

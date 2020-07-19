@@ -5,7 +5,12 @@ using System.Text;
 namespace NBT
 {
     /// <summary>
-    /// Base attribute class for all NBT data tags.
+    /// Denotes that the attached class represents an NBT compound.
+    /// </summary>
+    public class NBTCompound : Attribute { }
+
+    /// <summary>
+    /// Attribute class for all NBT data tags.
     /// </summary>
     public class NBTItem : Attribute
     {
