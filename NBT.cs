@@ -134,7 +134,8 @@ namespace NBT
 
                 //List of items.
                 case NBT_Tag.List:
-                    ParseList(afterHeader, nbtProps, dataStart, ref nextIndex);
+                    var list = ParseList(afterHeader, nbtProps, dataStart, ref nextIndex);
+                    possibleProps.SetValue(typeObj, list);
                     break;
 
                 //Child compound.
@@ -239,6 +240,10 @@ namespace NBT
 
                     nextIndex = dataStart + 4 + lArrLen * 8;
                     return longs.ToArray();
+
+                default:
+                    //Uh oh.
+                    throw new Exception("Tag value cannot be grabbed for type '" + tag.ToString() + "'.");
             }
         }
 
@@ -253,7 +258,6 @@ namespace NBT
                     return typeof(byte);
                 case NBT_Tag.Short:
                     return typeof(short);
-
                 case NBT_Tag.Integer:
                     return typeof(int);
                 case NBT_Tag.Long:
@@ -278,17 +282,18 @@ namespace NBT
         /// <summary>
         /// Parses an NBT list tag given the starting data.
         /// </summary>
-        private static void ParseList(IEnumerable<byte> afterHeader, List<PropertyInfo> possible, int dataStart, ref int nextIndex)
+        private static object ParseList(IEnumerable<byte> afterHeader, List<PropertyInfo> possible, int dataStart, ref int nextIndex)
         {
             //Get the length of the list.
             int listLen = BitConverter.ToInt32(afterHeader.Skip(1).Take(4).Reverse().ToArray());
 
             //Get the list type.
-            if ((NBT_Tag)afterHeader.ElementAt(0) == NBT_Tag.EndCompound && listLen != 0)
+            NBT_Tag tag = (NBT_Tag)afterHeader.ElementAt(0);
+            if (tag == NBT_Tag.EndCompound && listLen != 0)
             {
                 throw new Exception("NBT list cannot be of type 'EndCompound' and have a non-zero length.");
             }
-            Type listType = GetTypeFromTag((NBT_Tag)afterHeader.ElementAt(0));
+            Type listType = GetTypeFromTag(tag);
             
             //Whittle down the possible properties (must be lists with generic parameter (if found).
             for (int i=0; i<possible.Count; i++)
@@ -312,7 +317,25 @@ namespace NBT
                 }
             }
 
-            //
+            //Make a list of the type and get values for the straightforward value types.
+            if (listType != null)
+            {
+                var lt = typeof(List<>).MakeGenericType(listType);
+                var list = (System.Collections.IList)Activator.CreateInstance(lt);
+                int startIndex = 5;
+                for (int i=0; i<listLen; i++)
+                {
+                    list.Add(GetTagValue(tag, afterHeader.Skip(startIndex), startIndex, ref startIndex));
+                }
+
+                //Set next, return the list.
+                nextIndex = dataStart + startIndex;
+                return list;
+            }
+            else
+            {
+                return null;
+            }
         }
     }
 
