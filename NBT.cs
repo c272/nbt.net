@@ -92,43 +92,10 @@ namespace NBT
             }
 
             //Whittle down the possible properties more by required type (if a specific one is required).
-            Type requiredType = null;
-            switch ((NBT_Tag)data[index])
+            Type requiredType = GetTypeFromTag((NBT_Tag)data[index]);
+            if ((NBT_Tag)data[index] == NBT_Tag.EndCompound)
             {
-                //End of compound, just stop processing here.
-                case NBT_Tag.EndCompound:
-                    return;
-
-                case NBT_Tag.ByteSigned: 
-                    requiredType = typeof(byte); 
-                    break;
-                case NBT_Tag.Short: 
-                    requiredType = typeof(short); 
-                    break;
-                case NBT_Tag.Integer: 
-                    requiredType = typeof(int); 
-                    break;
-                case NBT_Tag.Long:
-                    requiredType = typeof(long); 
-                    break;
-                case NBT_Tag.Float:
-                    requiredType = typeof(float);
-                    break;
-                case NBT_Tag.Double:
-                    requiredType = typeof(double);
-                    break;
-                case NBT_Tag.ByteArray:
-                    requiredType = typeof(byte[]);
-                    break;
-                case NBT_Tag.String:
-                    requiredType = typeof(string);
-                    break;
-                case NBT_Tag.IntArray:
-                    requiredType = typeof(int[]);
-                    break;
-                case NBT_Tag.LongArray:
-                    requiredType = typeof(long[]);
-                    break;
+                return; //Stop processing here if it's the end of a compound.
             }
 
             //Cut by type (if a specific type is required).
@@ -148,86 +115,27 @@ namespace NBT
             int dataStart = index + 3 + nameLen;
             var afterHeader = data.Skip(dataStart);
             int nextIndex = -1;
-            switch ((NBT_Tag)data[index])
+            NBT_Tag tag = (NBT_Tag)data[index];
+            switch (tag)
             {
-                //One byte.
+                //Straightforward value type.s
                 case NBT_Tag.ByteSigned:
-                    possibleProps.SetValue(typeObj, data[dataStart]);
-                    nextIndex = dataStart + 1;
-                    break;
-
-                //Short (2 bytes, big endian).
                 case NBT_Tag.Short:
-                    possibleProps.SetValue(typeObj, BitConverter.ToInt16(afterHeader.Take(2).Reverse().ToArray()));
-                    nextIndex = dataStart + 2;
-                    break;
-
-                //Integer (4 bytes, big endian).
                 case NBT_Tag.Integer:
-                    possibleProps.SetValue(typeObj, BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray()));
-                    nextIndex = dataStart + 4;
-                    break;
-
-                //Long (8 bytes, big endian).
                 case NBT_Tag.Long:
-                    possibleProps.SetValue(typeObj, BitConverter.ToInt64(afterHeader.Take(8).Reverse().ToArray()));
-                    nextIndex = dataStart + 8;
-                    break;
-
-                //Float (4 byte IEEE-754 single precision).
                 case NBT_Tag.Float:
-                    possibleProps.SetValue(typeObj, BitConverter.ToSingle(afterHeader.Take(4).ToArray()));
-                    nextIndex = dataStart + 4;
-                    break;
-
-                //Double (8 byte IEEE-754 double precision).
                 case NBT_Tag.Double:
-                    possibleProps.SetValue(typeObj, BitConverter.ToDouble(afterHeader.Take(8).ToArray()));
-                    nextIndex = dataStart + 8;
-                    break;
-
-                //Byte array (length prefixed w/ signed 4-byte int).
                 case NBT_Tag.ByteArray:
-                    int arrayLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
-                    possibleProps.SetValue(typeObj, afterHeader.Skip(4).Take(arrayLen).ToArray());
-                    nextIndex = dataStart + 4 + arrayLen;
-                    break;
-
-                //String (length prefixed with 2 byte ushort).
                 case NBT_Tag.String:
-                    int strLen = BitConverter.ToUInt16(afterHeader.Take(2).Reverse().ToArray());
-                    possibleProps.SetValue(typeObj, Encoding.ASCII.GetString(afterHeader.Skip(2).Take(strLen).ToArray()));
-                    nextIndex = dataStart + 2 + strLen;
-                    break;
-
-                //Integer array (length prefixed with signed 4-byte int).
                 case NBT_Tag.IntArray:
-                    int iArrLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
-                    var ints = new List<int>();
-                    for (int i=0; i<iArrLen; i++)
-                    {
-                        ints.Add(BitConverter.ToInt32(afterHeader.Skip(4 + 4 * i).Take(4).Reverse().ToArray()));
-                    }
-                    possibleProps.SetValue(typeObj, ints.ToArray());
-                    nextIndex = dataStart + 4 + iArrLen * 4;
-                    break;
-
-                //Long array (length prefixed with signed 4-byte int).
                 case NBT_Tag.LongArray:
-                    int lArrLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
-                    var longs = new List<long>();
-                    for (int i = 0; i < lArrLen; i++)
-                    {
-                        longs.Add(BitConverter.ToInt64(afterHeader.Skip(4 + 8 * i).Take(8).Reverse().ToArray()));
-                    }
-                    possibleProps.SetValue(typeObj, longs.ToArray());
-                    nextIndex = dataStart + 4 + lArrLen * 8;
+                    possibleProps.SetValue(typeObj, GetTagValue(tag, afterHeader, dataStart, ref nextIndex));
                     break;
 
                 //List of items.
                 case NBT_Tag.List:
-                    Console.WriteLine("todo: nbt list parse");
-                    throw new NotImplementedException(); //todo
+                    ParseList(afterHeader, nbtProps, dataStart, ref nextIndex);
+                    break;
 
                 //Child compound.
                 case NBT_Tag.StartCompound:
@@ -258,6 +166,153 @@ namespace NBT
 
             //Process the next tag in the compound.
             ProcessTag(data, nextIndex, typeObj, nbtProps);
+        }
+
+        /// <summary>
+        /// Returns the value of a given tag given the type and starting data.
+        /// </summary>
+        private static object GetTagValue(NBT_Tag tag, IEnumerable<byte> afterHeader, int dataStart, ref int nextIndex)
+        {
+            switch (tag) 
+            {
+                //One byte.
+                case NBT_Tag.ByteSigned:
+                    nextIndex = dataStart + 1;
+                    return afterHeader.ElementAt(0);
+
+                //Short.
+                case NBT_Tag.Short:
+                    nextIndex = dataStart + 2;
+                    return BitConverter.ToInt16(afterHeader.Take(2).Reverse().ToArray());
+
+                //Integer (4 bytes, big endian).
+                case NBT_Tag.Integer:
+                    nextIndex = dataStart + 4;
+                    return BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
+
+                //Long (8 bytes, big endian).
+                case NBT_Tag.Long:
+                    nextIndex = dataStart + 8;
+                    return BitConverter.ToInt64(afterHeader.Take(8).Reverse().ToArray());
+
+                //Float (4 byte IEEE-754 single precision).
+                case NBT_Tag.Float:
+                    nextIndex = dataStart + 4;
+                    return BitConverter.ToSingle(afterHeader.Take(4).ToArray());
+
+                //Double (8 byte IEEE-754 double precision).
+                case NBT_Tag.Double:
+                    nextIndex = dataStart + 8;
+                    return BitConverter.ToDouble(afterHeader.Take(8).ToArray());
+
+                //Byte array (length prefixed w/ signed 4-byte int).
+                case NBT_Tag.ByteArray:
+                    int arrayLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
+                    nextIndex = dataStart + 4 + arrayLen;
+                    return afterHeader.Skip(4).Take(arrayLen).ToArray();
+
+                //String (length prefixed with 2 byte ushort).
+                case NBT_Tag.String:
+                    int strLen = BitConverter.ToUInt16(afterHeader.Take(2).Reverse().ToArray());
+                    nextIndex = dataStart + 2 + strLen;
+                    return Encoding.UTF8.GetString(afterHeader.Skip(2).Take(strLen).ToArray());
+
+                //Integer array (length prefixed with signed 4-byte int).
+                case NBT_Tag.IntArray:
+                    int iArrLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
+                    var ints = new List<int>();
+                    for (int i = 0; i < iArrLen; i++)
+                    {
+                        ints.Add(BitConverter.ToInt32(afterHeader.Skip(4 + 4 * i).Take(4).Reverse().ToArray()));
+                    }
+                    nextIndex = dataStart + 4 + iArrLen * 4;
+                    return ints.ToArray();
+
+                //Long array (length prefixed with signed 4-byte int).
+                case NBT_Tag.LongArray:
+                    int lArrLen = BitConverter.ToInt32(afterHeader.Take(4).Reverse().ToArray());
+                    var longs = new List<long>();
+                    for (int i = 0; i < lArrLen; i++)
+                    {
+                        longs.Add(BitConverter.ToInt64(afterHeader.Skip(4 + 8 * i).Take(8).Reverse().ToArray()));
+                    }
+
+                    nextIndex = dataStart + 4 + lArrLen * 8;
+                    return longs.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// Returns a C# type (or null if not found) for the given NBT tag type.
+        /// </summary>
+        private static Type GetTypeFromTag(NBT_Tag tag)
+        {
+            switch (tag)
+            {
+                case NBT_Tag.ByteSigned:
+                    return typeof(byte);
+                case NBT_Tag.Short:
+                    return typeof(short);
+
+                case NBT_Tag.Integer:
+                    return typeof(int);
+                case NBT_Tag.Long:
+                    return typeof(long);
+                case NBT_Tag.Float:
+                    return typeof(float);
+                case NBT_Tag.Double:
+                    return typeof(double);
+                case NBT_Tag.ByteArray:
+                    return typeof(byte[]);
+                case NBT_Tag.String:
+                    return typeof(string);
+                case NBT_Tag.IntArray:
+                    return typeof(int[]);
+                case NBT_Tag.LongArray:
+                    return typeof(long[]);
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Parses an NBT list tag given the starting data.
+        /// </summary>
+        private static void ParseList(IEnumerable<byte> afterHeader, List<PropertyInfo> possible, int dataStart, ref int nextIndex)
+        {
+            //Get the length of the list.
+            int listLen = BitConverter.ToInt32(afterHeader.Skip(1).Take(4).Reverse().ToArray());
+
+            //Get the list type.
+            if ((NBT_Tag)afterHeader.ElementAt(0) == NBT_Tag.EndCompound && listLen != 0)
+            {
+                throw new Exception("NBT list cannot be of type 'EndCompound' and have a non-zero length.");
+            }
+            Type listType = GetTypeFromTag((NBT_Tag)afterHeader.ElementAt(0));
+            
+            //Whittle down the possible properties (must be lists with generic parameter (if found).
+            for (int i=0; i<possible.Count; i++)
+            {
+                //Make sure it's a list. (todo: check)
+                if (possible[i].PropertyType != typeof(System.Collections.IList) 
+                    || !possible[i].PropertyType.IsGenericType
+                    || possible[i].PropertyType.GetGenericArguments().Length == 0)
+                {
+                    possible.RemoveAt(i);
+                    i--;
+                    continue;
+                }
+
+                //Is the list generic of the right type (if type required).
+                if (listType != null && possible[i].PropertyType.GetGenericArguments()[0] != listType)
+                {
+                    possible.RemoveAt(i);
+                    i--;
+                    continue;
+                }
+            }
+
+            //
         }
     }
 
