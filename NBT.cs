@@ -54,7 +54,8 @@ namespace NBT
 
             //Recursively process NBT tags.
             T typeObj = (T)Activator.CreateInstance(typeof(T));
-            ProcessTag(data, 0, typeObj, nbtProps.ToList());
+            int index = 0;
+            ProcessTag(data, ref index, typeObj, nbtProps.ToList());
 
             //Return results.
             return typeObj;
@@ -63,8 +64,19 @@ namespace NBT
         /// <summary>
         /// Processes a single tag at the given location onto the destination object.
         /// </summary>
-        private static void ProcessTag(byte[] data, int index, object typeObj, List<PropertyInfo> nbtProps)
+        private static void ProcessTag(byte[] data, ref int index, object typeObj, List<PropertyInfo> nbtProps)
         {
+            //Are we done processing yet?
+            if (index == data.Length) { return; }
+
+            //Is it an end compound? Then stop here.
+            if (index < 0) { throw new Exception("Invalid index for tag processing (<0)."); }
+            if ((NBT_Tag)data[index] == NBT_Tag.EndCompound)
+            {
+                index++;
+                return; //Stop processing here if it's the end of a compound.
+            }
+
             //Get the name of the tag.
             if (index + 2 >= data.Length) { throw new Exception("Invalid tag entrypoint at index " + index + " (no name length)."); }
             int nameLen = BitConverter.ToInt16(data.Skip(index + 1).Take(2).Reverse().ToArray());
@@ -93,10 +105,6 @@ namespace NBT
 
             //Whittle down the possible properties more by required type (if a specific one is required).
             Type requiredType = GetTypeFromTag((NBT_Tag)data[index]);
-            if ((NBT_Tag)data[index] == NBT_Tag.EndCompound)
-            {
-                return; //Stop processing here if it's the end of a compound.
-            }
 
             //Cut by type (if a specific type is required).
             if (requiredType != null)
@@ -134,8 +142,7 @@ namespace NBT
 
                 //List of items.
                 case NBT_Tag.List:
-                    var list = ParseList(afterHeader, nbtProps, dataStart, ref nextIndex);
-                    possibleProps.SetValue(typeObj, list);
+                    ParseList(data, afterHeader, typeObj, nbtProps, dataStart, ref nextIndex);
                     break;
 
                 //Child compound.
@@ -156,17 +163,27 @@ namespace NBT
 
                         //Recursively process NBT tags for child.
                         object childCompound = Activator.CreateInstance(possibleProps[i].PropertyType);
-                        ProcessTag(data, dataStart, childCompound, childValidProps.ToList());
+                        ProcessTag(data, ref dataStart, childCompound, childValidProps.ToList());
 
                         //Set in parent.
                         possibleProps[i].SetValue(typeObj, childCompound);
                     }
+
+                    //If there are no possible properties, still recursively process on empty class.
+                    if (possibleProps.Count == 0)
+                    {
+                        object childCompound = Activator.CreateInstance(typeof(NBTCompound));
+                        ProcessTag(data, ref dataStart, childCompound, new List<PropertyInfo>());
+                    }
+
+                    //Set next index and break.
                     nextIndex = dataStart;
                     break;
             }
 
             //Process the next tag in the compound.
-            ProcessTag(data, nextIndex, typeObj, nbtProps);
+            index = nextIndex;
+            ProcessTag(data, ref index, typeObj, nbtProps);
         }
 
         /// <summary>
@@ -282,10 +299,17 @@ namespace NBT
         /// <summary>
         /// Parses an NBT list tag given the starting data.
         /// </summary>
-        private static object ParseList(IEnumerable<byte> afterHeader, List<PropertyInfo> possible, int dataStart, ref int nextIndex)
+        private static void ParseList(byte[] data, IEnumerable<byte> afterHeader, object typeObj, List<PropertyInfo> possible, int dataStart, ref int nextIndex)
         {
             //Get the length of the list.
             int listLen = BitConverter.ToInt32(afterHeader.Skip(1).Take(4).Reverse().ToArray());
+
+            //If the list is zero length, just shuffle up the next index and return.
+            if (listLen == 0)
+            {
+                nextIndex = dataStart + 5;
+                return;
+            }
 
             //Get the list type.
             NBT_Tag tag = (NBT_Tag)afterHeader.ElementAt(0);
@@ -330,11 +354,65 @@ namespace NBT
 
                 //Set next, return the list.
                 nextIndex = dataStart + startIndex;
-                return list;
+                possible.SetValue(typeObj, list);
+                return;
             }
-            else
+
+            //If it's a list of lists, give up (for now).
+            if (tag == NBT_Tag.List)
             {
-                return null;
+                throw new Exception("Recursive descent list parsing is not possible due to dynamic typing.");
+            }
+
+            //If it's a list of compounds, get the listed type from the NBTList tag.
+            if (tag == NBT_Tag.StartCompound)
+            {
+                foreach (var prop in possible)
+                {
+                    //Does the property have an NBTCompoundList attribute?
+                    if (prop.GetCustomAttribute(typeof(NBTCompoundList)) == null) { continue; }
+                    var propAttr = (NBTCompoundList)prop.GetCustomAttribute(typeof(NBTCompoundList));
+
+                    //Yes, use it to get the types for the list indices.
+                    var lt = typeof(List<>).MakeGenericType(listType);
+                    var list = (System.Collections.IList)Activator.CreateInstance(lt);
+                    dataStart += 5;
+                    for (int i=0; i<listLen; i++)
+                    {
+                        //Create an instance of that type.
+                        var listPropObj = Activator.CreateInstance(propAttr.Type);
+                        var nbtProps = propAttr.Type.GetProperties()
+                                    .Where(x => x.GetCustomAttribute(typeof(NBTItem)) != null)
+                                    .ToList();
+
+                        //Process all tags for the object.
+                        ProcessTag(data, ref dataStart, listPropObj, nbtProps);
+                        list.Add(listPropObj);
+                    }
+
+                    //Set the new starting index.
+                    nextIndex = dataStart;
+
+                    //Set list property.
+                    prop.SetValue(typeObj, list);
+                }
+
+                //If no possible properties, just emulate with an empty class.
+                if (possible.Count == 0)
+                {
+                    dataStart += 5;
+                    for (int i = 0; i < listLen; i++)
+                    {
+                        //Create an instance of some class (doesn't really matter).
+                        var listPropObj = Activator.CreateInstance(typeof(NBTCompound));
+
+                        //Process all tags for the object.
+                        ProcessTag(data, ref dataStart, listPropObj, new List<PropertyInfo>());
+                    }
+
+                    //Set the new starting index.
+                    nextIndex = dataStart;
+                }
             }
         }
     }

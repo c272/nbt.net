@@ -10,6 +10,19 @@ namespace NBT
     public class NBTCompound : Attribute { }
 
     /// <summary>
+    /// Denotes that the attached property represents a list of NBT compounds,
+    /// and what types to use for which indices.
+    /// </summary>
+    public class NBTCompoundList : Attribute
+    {
+        public Type Type { get; private set; }
+        public NBTCompoundList(Type type)
+        {
+            Type = type;
+        }
+    }
+
+    /// <summary>
     /// Attribute class for all NBT data tags.
     /// </summary>
     public class NBTItem : Attribute

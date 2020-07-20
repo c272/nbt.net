@@ -7,8 +7,15 @@ namespace NBT
     {
         static void Main(string[] args)
         {
-            var levDat = NBT.Deserialize<LevelDat>(File.ReadAllBytes("level.dat"));
+            var levDat = NBT.Deserialize<LevelDatContainer>(File.ReadAllBytes("level.dat"));
         }
+    }
+
+    [NBTCompound]
+    public class LevelDatContainer
+    {
+        [NBTItem("")]
+        public LevelDat Root { get; set; }
     }
 
     [NBTCompound]
@@ -21,6 +28,9 @@ namespace NBT
     [NBTCompound]
     public class Data_LevelDat
     {
+        [NBTItem]
+        public Data_GameRules GameRules { get; set; }
+
         [NBTItem]
         public double BorderCenterX { get; set; }
 
@@ -38,5 +48,12 @@ namespace NBT
 
         [NBTItem]
         public string generatorName { get; set; }
+    }
+
+    [NBTCompound]
+    public class Data_GameRules
+    {
+        [NBTItem]
+        public string keepInventory { get; set; }
     }
 }
