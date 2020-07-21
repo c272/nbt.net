@@ -12,7 +12,7 @@ NBT.NET is a serialization library designed to work with Notch's "Named Binary T
 # Usage
 To deserialize a file into a specified C# class, you would first create classes with `NBTItem` and `NBTCompound` attributes, like so:
 ```cs
-using nbt.net;
+using NBT;
 ...
 
 [NBTCompound]
