@@ -1,4 +1,5 @@
 ﻿using ICSharpCode.SharpZipLib.GZip;
+using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
 using Microsoft.VisualBasic.CompilerServices;
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,7 @@ namespace NBT
         /// </summary>
         /// <typeparam name="T">The type to return.</typeparam>
         /// <param name="data">The NBT file bytes to parse.</param>
-        public static T Deserialize<T>(byte[] data)
+        public static T Deserialize<T>(byte[] data, bool useZlib = false)
         {
             //Does the class in question have the "NBTCompound" tag?
             if (typeof(T).GetCustomAttribute(typeof(NBTCompound)) == null)
@@ -29,7 +30,7 @@ namespace NBT
             }
 
             //Check if the data is gzip compressed, decompress if so.
-            if (data[0] == 0x1F && data[1] == 0x8B)
+            if (data[0] == 0x1F && data[1] == 0x8B && !useZlib)
             {
                 //It's compressed.
                 using (var outData = new MemoryStream())
@@ -38,14 +39,19 @@ namespace NBT
                     data = new byte[outData.Length];
                     outData.Seek(0, SeekOrigin.Begin);
                     outData.Read(data);
-                    File.WriteAllBytes("level_decompressed.dat", data);
                 }
             }
 
-            //Make sure the NBT file begins with an empty compound (0x0A0000).
-            if (data.Length <= 3 || data[0] != (int)NBT_Tag.StartCompound || data[1] != 0x0 || data[2] != 0x0)
+            //Zlib decompress if flagged.
+            if (useZlib)
             {
-                throw new Exception("Invalid NBT start tag (must be an empty compound tag).");
+                using (var compressedStream = new MemoryStream(data))
+                using (var decompressStream = new InflaterInputStream(compressedStream))
+                {
+                    decompressStream.Seek(0, SeekOrigin.Begin);
+                    data = new byte[decompressStream.Length];
+                    decompressStream.Read(data);
+                }
             }
 
             //Get valid property data for destination type.
