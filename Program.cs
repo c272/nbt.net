@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace NBT
@@ -32,6 +33,9 @@ namespace NBT
         public Data_GameRules GameRules { get; set; }
 
         [NBTItem]
+        public Data_Player Player { get; set; }
+
+        [NBTItem]
         public double BorderCenterX { get; set; }
 
         [NBTItem]
@@ -48,6 +52,26 @@ namespace NBT
 
         [NBTItem]
         public string generatorName { get; set; }
+    }
+
+    [NBTCompound]
+    public class Data_Player
+    {
+        [NBTItem]
+        public List<InventoryItem> Inventory { get; set; }
+    }
+
+    [NBTCompound]
+    public class InventoryItem
+    {
+        [NBTItem]
+        public byte Count { get; set; }
+
+        [NBTItem]
+        public byte Slot { get; set; }
+
+        [NBTItem]
+        public string id { get; set; }
     }
 
     [NBTCompound]

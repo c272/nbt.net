@@ -142,7 +142,7 @@ namespace NBT
 
                 //List of items.
                 case NBT_Tag.List:
-                    ParseList(data, afterHeader, typeObj, nbtProps, dataStart, ref nextIndex);
+                    ParseList(data, afterHeader, typeObj, possibleProps, dataStart, ref nextIndex);
                     break;
 
                 //Child compound.
@@ -299,7 +299,7 @@ namespace NBT
         /// <summary>
         /// Parses an NBT list tag given the starting data.
         /// </summary>
-        private static void ParseList(byte[] data, IEnumerable<byte> afterHeader, object typeObj, List<PropertyInfo> possible, int dataStart, ref int nextIndex)
+        private static void ParseList(byte[] data, IEnumerable<byte> afterHeader, object typeObj, List<PropertyInfo> possibleOriginal, int dataStart, ref int nextIndex)
         {
             //Get the length of the list.
             int listLen = BitConverter.ToInt32(afterHeader.Skip(1).Take(4).Reverse().ToArray());
@@ -318,12 +318,15 @@ namespace NBT
                 throw new Exception("NBT list cannot be of type 'EndCompound' and have a non-zero length.");
             }
             Type listType = GetTypeFromTag(tag);
+
+            //Shallow copy the original list to not modify it.
+            List<PropertyInfo> possible = possibleOriginal.ShallowCopy();
             
             //Whittle down the possible properties (must be lists with generic parameter (if found).
             for (int i=0; i<possible.Count; i++)
             {
                 //Make sure it's a list. (todo: check)
-                if (possible[i].PropertyType != typeof(System.Collections.IList) 
+                if (possible[i].PropertyType.GetGenericTypeDefinition() != typeof(List<>)
                     || !possible[i].PropertyType.IsGenericType
                     || possible[i].PropertyType.GetGenericArguments().Length == 0)
                 {
@@ -369,19 +372,16 @@ namespace NBT
             {
                 foreach (var prop in possible)
                 {
-                    //Does the property have an NBTCompoundList attribute?
-                    if (prop.GetCustomAttribute(typeof(NBTCompoundList)) == null) { continue; }
-                    var propAttr = (NBTCompoundList)prop.GetCustomAttribute(typeof(NBTCompoundList));
-
                     //Yes, use it to get the types for the list indices.
+                    listType = prop.PropertyType.GetGenericArguments()[0];
                     var lt = typeof(List<>).MakeGenericType(listType);
                     var list = (System.Collections.IList)Activator.CreateInstance(lt);
                     dataStart += 5;
                     for (int i=0; i<listLen; i++)
                     {
                         //Create an instance of that type.
-                        var listPropObj = Activator.CreateInstance(propAttr.Type);
-                        var nbtProps = propAttr.Type.GetProperties()
+                        var listPropObj = Activator.CreateInstance(listType);
+                        var nbtProps = listType.GetProperties()
                                     .Where(x => x.GetCustomAttribute(typeof(NBTItem)) != null)
                                     .ToList();
 
@@ -389,9 +389,6 @@ namespace NBT
                         ProcessTag(data, ref dataStart, listPropObj, nbtProps);
                         list.Add(listPropObj);
                     }
-
-                    //Set the new starting index.
-                    nextIndex = dataStart;
 
                     //Set list property.
                     prop.SetValue(typeObj, list);
@@ -409,10 +406,10 @@ namespace NBT
                         //Process all tags for the object.
                         ProcessTag(data, ref dataStart, listPropObj, new List<PropertyInfo>());
                     }
-
-                    //Set the new starting index.
-                    nextIndex = dataStart;
                 }
+
+                //Set the new starting index.
+                nextIndex = dataStart;
             }
         }
     }

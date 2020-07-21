@@ -23,5 +23,13 @@ namespace NBT
                 item.SetValue(target, value);
             }
         }
+
+        /// <summary>
+        /// Creates a shallow copy of this list.
+        /// </summary>
+        public static List<T> ShallowCopy<T>(this List<T> list)
+        {
+            return new List<T>(list);
+        }
     }
 }
