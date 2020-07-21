@@ -48,9 +48,11 @@ namespace NBT
                 using (var compressedStream = new MemoryStream(data))
                 using (var decompressStream = new InflaterInputStream(compressedStream))
                 {
-                    decompressStream.Seek(0, SeekOrigin.Begin);
-                    data = new byte[decompressStream.Length];
-                    decompressStream.Read(data);
+                    var outputStream = new MemoryStream();
+                    decompressStream.CopyTo(outputStream);
+                    data = new byte[outputStream.Length];
+                    outputStream.Seek(0, SeekOrigin.Begin);
+                    outputStream.Read(data);
                 }
             }
 
@@ -91,6 +93,11 @@ namespace NBT
 
             //Get all valid properties that could apply for this tag.
             //If the property is using regex, then use IsMatch instead of literal name.
+            if (data.Length == 61202 && index == 0xEB82) 
+            {
+                File.WriteAllBytes("crashdump.raw", data);
+                Console.WriteLine("fff"); 
+            }
             var possibleProps = new List<PropertyInfo>();
             foreach (var prop in nbtProps)
             {
@@ -367,10 +374,15 @@ namespace NBT
                 return;
             }
 
-            //If it's a list of lists, give up (for now).
+            //If it's a list of lists, give up (for now) and just emulate RDLP.
             if (tag == NBT_Tag.List)
             {
-                throw new Exception("Recursive descent list parsing is not possible due to dynamic typing.");
+                dataStart += 5;
+                for (int i=0; i<listLen; i++)
+                {
+                    ParseList(data, data.Skip(dataStart), new NBTCompound(), new List<PropertyInfo>(), dataStart, ref nextIndex);
+                    dataStart = nextIndex;
+                }
             }
 
             //If it's a list of compounds, get the listed type from the NBTList tag.
