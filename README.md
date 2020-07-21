@@ -30,7 +30,7 @@ public class ExampleNBT
 ```
 
 After you define classes to hold the NBT data, you can deserialize like so:
-```
+```cs
 byte[] nbtData = File.ReadAllBytes("level.dat");
 ExampleNBT deserialized = NBT.Deserialize<ExampleNBT>(nbtData);
 ```
