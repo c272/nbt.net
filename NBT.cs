@@ -93,11 +93,6 @@ namespace NBT
 
             //Get all valid properties that could apply for this tag.
             //If the property is using regex, then use IsMatch instead of literal name.
-            if (data.Length == 61202 && index == 0xEB82) 
-            {
-                File.WriteAllBytes("crashdump.raw", data);
-                Console.WriteLine("fff"); 
-            }
             var possibleProps = new List<PropertyInfo>();
             foreach (var prop in nbtProps)
             {
